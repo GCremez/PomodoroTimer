@@ -55,8 +55,25 @@ public class PomodoroTimer {
     }
 
     public void resumeSession() {
+        if (!isRunning.get()) {
+            System.out.println("No Session to resume.");
+            return;
+        }
+        if (!isPaused.get()) {
+            System.out.println("Timer is already Running.");
+            return;
+        }
+        isPaused.set(false);
+        System.out.println("Timer Resumed.");
     }
 
     public void stopSession() {
+        if (timer != null) {
+            timer.cancel();
+        }
+        isRunning.set(false);
+        isPaused.set(false);
+        timeleft = durationInSeconds;
+        System.out.println("\n Timer Stopped and Reset");
     }
 }
