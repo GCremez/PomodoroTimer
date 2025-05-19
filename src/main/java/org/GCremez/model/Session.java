@@ -20,6 +20,26 @@ public class Session {
                 type, startTime.toString(), duration.toString());
     }
 
+    public static Session fromJson(String json) {
+        try {
+            String[] parts = json.replaceAll("[{}\"]", "").split(",");
+            String type = parts[0].split(":")[1];
+            String start = parts[1].split(":")[1];
+            String time = parts[1].split(":")[2];
+            String dateTimeStr = start + ":" + time;
+            String secondsStr = parts[2].split(":")[1];
+
+
+            return new Session(
+                    type,
+                    LocalDateTime.parse(dateTimeStr),
+                    Duration.ofSeconds(Long.parseLong(secondsStr))
+            );
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     // Getters
     public String getType() {
         return type;
