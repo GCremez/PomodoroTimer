@@ -20,6 +20,9 @@ logs/
 *.tar.gz
 *.rar
 
+# But allow sound files
+!src/main/resources/sounds/*.wav
+
 # virtual machine crash logs
 hs_err_pid*
 replay_pid*
