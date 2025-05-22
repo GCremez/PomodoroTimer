@@ -155,10 +155,23 @@ public class PomodoroTimer implements AutoCloseable {
             displayTotalFocusTime();
             startBreak();
         } else {
+            // Break is over - time to work
             SoundService.playWorkSound();
-            printMessage("\nBack to work! Starting next focus session.");
-            stopSession();
-            startSession(SessionType.WORK, sessionDurationInMinutes);
+            printMessage("\nBreak Over! Back to work!");
+            
+            // Use a small delay to ensure the message is seen and sound plays
+            try {
+                Thread.sleep(1500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            
+            // Important: start a new work session without calling stopSession first
+            // to prevent the thread termination issue
+            timeLeft = sessionDurationInMinutes * 60;
+            currentSessionType = SessionType.WORK;
+            
+            printMessage("Starting WORK Session: " + sessionDurationInMinutes + " Minutes");
         }
     }
 
@@ -170,8 +183,18 @@ public class PomodoroTimer implements AutoCloseable {
             isLongBreak ? "LONG" : "short", breakDuration));
         SoundService.playBreakSound();
         
-        stopSession();
-        startSession(SessionType.SHORT_BREAK, breakDuration);
+        // Use a small delay to ensure the message is seen and sound plays
+        try {
+            Thread.sleep(1500);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        
+        // Important: Switch to break mode without calling stopSession
+        timeLeft = breakDuration * 60;
+        currentSessionType = SessionType.SHORT_BREAK;
+        
+        printMessage("Starting BREAK Session: " + breakDuration + " Minutes");
     }
 
     private void handleUserInput() {
@@ -180,9 +203,19 @@ public class PomodoroTimer implements AutoCloseable {
                 String input = "";
                 if (lineReader != null) {
                     try {
-                        // Set non-blocking read timeout
-                        lineReader.variable(LineReader.SECONDARY_PROMPT_PATTERN, "");
-                        input = lineReader.readLine("");
+                        // Use a non-blocking approach with sleep instead
+                        if (lineReader.isReading()) {
+                            Thread.sleep(100);
+                            continue;
+                        }
+                        
+                        // Only try to read if there's input available
+                        if (terminal.reader().ready()) {
+                            input = lineReader.readLine("", "", (Character)null, null);
+                        } else {
+                            Thread.sleep(100);
+                            continue;
+                        }
                     } catch (UserInterruptException e) {
                         // Ctrl+C - stop the timer
                         stopSession();
@@ -195,9 +228,18 @@ public class PomodoroTimer implements AutoCloseable {
                         break;
                     }
                 } else {
-                    if (System.in.available() > 0) {
-                        input = new Scanner(System.in).nextLine();
-                    } else {
+                    // Fallback to Scanner
+                    try {
+                        if (System.in.available() > 0) {
+                            Scanner scanner = new Scanner(System.in);
+                            if (scanner.hasNextLine()) {
+                                input = scanner.nextLine();
+                            }
+                        } else {
+                            Thread.sleep(100);
+                            continue;
+                        }
+                    } catch (Exception e) {
                         Thread.sleep(100);
                         continue;
                     }
@@ -206,9 +248,21 @@ public class PomodoroTimer implements AutoCloseable {
                 if (input != null && !input.trim().isEmpty()) {
                     processUserCommand(input.trim().toLowerCase());
                 }
+                
+                // Add a small sleep to prevent CPU hogging
+                Thread.sleep(50);
             } catch (Exception e) {
                 if (!isRunning.get()) break;
-                System.err.println("Error reading input: " + e.getMessage());
+                // Only print real errors, not just null input
+                if (e.getMessage() != null) {
+                    System.err.println("Error reading input: " + e.getMessage());
+                }
+                
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
     }
