@@ -2,13 +2,14 @@ package org.GCremez.model;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import org.GCremez.timer.PomodoroTimer.SessionType;
 
 public class Session {
-    private String type;
+    private SessionType type;
     private LocalDateTime startTime;
     private Duration duration;
 
-    public Session(String type, LocalDateTime startTime, Duration duration) {
+    public Session(SessionType type, Duration duration, LocalDateTime startTime) {
         this.type = type;
         this.startTime = startTime;
         this.duration = duration;
@@ -17,7 +18,7 @@ public class Session {
     // Convert session data to JSON format for easy writing
     public String toJson() {
         return String.format("{\"type\":\"%s\",\"start_time\":\"%s\",\"duration_seconds\":%d}",
-                escapeJson(type), 
+                escapeJson(type.name().toLowerCase()), 
                 startTime.toString(),
                 duration.getSeconds());
     }
@@ -44,7 +45,7 @@ public class Session {
             String content = json.substring(1, json.length() - 1);
             String[] parts = content.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
             
-            String type = null;
+            String typeStr = null;
             LocalDateTime startTime = null;
             Duration duration = null;
 
@@ -57,7 +58,7 @@ public class Session {
 
                 switch (key) {
                     case "type":
-                        type = value.replaceAll("^\"|\"$", "");
+                        typeStr = value.replaceAll("^\"|\"$", "").toUpperCase();
                         break;
                     case "start_time":
                         startTime = LocalDateTime.parse(value.replaceAll("^\"|\"$", ""));
@@ -68,11 +69,11 @@ public class Session {
                 }
             }
 
-            if (type == null || startTime == null || duration == null) {
+            if (typeStr == null || startTime == null || duration == null) {
                 throw new IllegalArgumentException("Missing required fields");
             }
 
-            return new Session(type, startTime, duration);
+            return new Session(SessionType.valueOf(typeStr), duration, startTime);
         } catch (Exception e) {
             System.err.println("Error parsing session: " + e.getMessage());
             return null;
@@ -80,7 +81,7 @@ public class Session {
     }
 
     // Getters
-    public String getType() {
+    public SessionType getType() {
         return type;
     }
 

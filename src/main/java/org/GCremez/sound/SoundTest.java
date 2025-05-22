@@ -1,20 +1,25 @@
 package org.GCremez.sound;
 
+import org.GCremez.config.ConfigManager;
+
 public class SoundTest {
     public static void main(String[] args) {
         System.out.println("Testing sound playback...");
         
         try {
+            ConfigManager configManager = new ConfigManager();
+            SoundService soundService = new SoundService(configManager);
+
             // Test break sound
             System.out.println("Playing break sound...");
-            SoundService.testPlaySound("break");
+            soundService.testPlaySound("break");
             
             // Wait 3 seconds
             Thread.sleep(3000);
             
             // Test work sound
             System.out.println("Playing work sound...");
-            SoundService.testPlaySound("work");
+            soundService.testPlaySound("work");
             
             // Wait for sounds to finish
             Thread.sleep(5000);

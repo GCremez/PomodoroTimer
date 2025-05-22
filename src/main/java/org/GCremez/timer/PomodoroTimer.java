@@ -10,6 +10,7 @@ import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStringBuilder;
 import org.jline.utils.AttributedStyle;
 import org.jline.utils.InfoCmp;
+import org.GCremez.service.AnalyticsService;
 
 import java.io.FileWriter;
 import java.io.IOException;
@@ -23,18 +24,22 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PomodoroTimer implements AutoCloseable {
-    // Replace the static final fields with config-based values
-    private static int getLongBreakDuration() {
-        return ConfigManager.getLongBreakDuration();
-    }
-    
-    private static int getShortBreakDuration() {
-        return ConfigManager.getShortBreakDuration();
-    }
-    
-    private static int getSessionsBeforeLongBreak() {
-        return ConfigManager.getSessionsBeforeLongBreak();
-    }
+    private final ConfigManager configManager;
+    private final SoundService soundService;
+    private final AnalyticsService analyticsService;
+    private final AtomicBoolean isRunning;
+    private final AtomicBoolean isPaused;
+    private Thread timerThread;
+    private SessionType currentSessionType;
+    private int sessionDurationInMinutes;
+    private int timeLeft;
+    private int focusCount;
+    private Timer timer;
+    private final ExecutorService executor;
+    private final List<Session> sessionLogs;
+    private Terminal terminal;
+    private LineReader lineReader;
+    private final AtomicBoolean displayingHelp;
 
     // Available commands
     private static final String CMD_PAUSE = "pause";
@@ -44,21 +49,26 @@ public class PomodoroTimer implements AutoCloseable {
     private static final String CMD_STATUS = "status";
     private static final String CMD_SKIP = "skip";
 
-    private Timer timer;
-    private int timeLeft;
-    private final AtomicBoolean isPaused = new AtomicBoolean(false);
-    private final AtomicBoolean isRunning = new AtomicBoolean(false);
-    private final ExecutorService executor = Executors.newFixedThreadPool(2);
-    private final List<Session> sessionLogs = new ArrayList<>();
-    private Terminal terminal;
-    private LineReader lineReader;
-    private final AtomicBoolean displayingHelp = new AtomicBoolean(false);
+    public enum SessionType {
+        WORK,
+        SHORT_BREAK,
+        LONG_BREAK
+    }
 
-    private int sessionDurationInMinutes;
-    private SessionType currentSessionType;
-    private int focusCount = 0;
+    public PomodoroTimer(ConfigManager configManager, SoundService soundService, AnalyticsService analyticsService) {
+        this.configManager = configManager;
+        this.soundService = soundService;
+        this.analyticsService = analyticsService;
+        this.isRunning = new AtomicBoolean(false);
+        this.isPaused = new AtomicBoolean(false);
+        this.currentSessionType = SessionType.WORK;
+        this.sessionDurationInMinutes = 0;
+        this.timeLeft = 0;
+        this.focusCount = 0;
+        this.executor = Executors.newFixedThreadPool(2);
+        this.sessionLogs = new ArrayList<>();
+        this.displayingHelp = new AtomicBoolean(false);
 
-    public PomodoroTimer() {
         try {
             terminal = TerminalBuilder.builder()
                     .system(true)
@@ -70,226 +80,106 @@ public class PomodoroTimer implements AutoCloseable {
                     .completer(new PomodoroCompleter())
                     .option(LineReader.Option.CASE_INSENSITIVE, true)
                     .variable(LineReader.SECONDARY_PROMPT_PATTERN, "%P > ")
-                    .variable(LineReader.HISTORY_SIZE, ConfigManager.getCommandHistorySize())
+                    .variable(LineReader.HISTORY_SIZE, configManager.getCommandHistorySize())
                     .build();
                     
             // Clear screen at startup if configured
-            if (ConfigManager.shouldClearScreenOnStart()) {
+            if (configManager.shouldClearScreenOnStart()) {
                 terminal.puts(InfoCmp.Capability.clear_screen);
                 terminal.flush();
             }
         } catch (IOException e) {
             System.err.println("Failed to initialize terminal: " + e.getMessage());
-            // Fallback to basic console IO
         }
     }
 
-    public void startPomodoroCycle(int workDurationInMinutes) {
-        startSession(SessionType.WORK, workDurationInMinutes);
+    public void startWorkSession() throws InterruptedException {
+        if (!isRunning.get()) {
+            isRunning.set(true);
+            currentSessionType = SessionType.WORK;
+            soundService.playWorkSound();
+            analyticsService.logWorkSessionStart();
+            startTimer(configManager.getWorkDuration());
+        }
     }
 
-    public void startSession(SessionType type, int durationInMinutes) {
+    public void startBreakSession() throws InterruptedException {
+        if (!isRunning.get()) {
+            isRunning.set(true);
+            currentSessionType = SessionType.SHORT_BREAK;
+            soundService.playBreakSound();
+            analyticsService.logBreakSessionStart();
+            startTimer(configManager.getBreakDuration());
+        }
+    }
+
+    public void completeSession() {
         if (isRunning.get()) {
-            printMessage("Timer is already running");
-            return;
+            stopTimer();
+            analyticsService.logSessionComplete();
+            logSession(currentSessionType, Duration.ofMinutes(sessionDurationInMinutes));
         }
-
-        sessionDurationInMinutes = durationInMinutes;
-        currentSessionType = type;
-        timeLeft = durationInMinutes * 60;
-        isRunning.set(true);
-        timer = new Timer();
-
-        printMessage("Starting " + type + " Session: " + durationInMinutes + " Minutes");
-        printMessage("Type 'help' to see available commands");
-
-        executor.submit(this::runTimer);
-        executor.submit(this::handleUserInput);
     }
 
-    private void runTimer() {
-        timer.scheduleAtFixedRate(new TimerTask() {
-            @Override
-            public void run() {
-                if (isPaused.get()) return;
-
-                if (timeLeft > 0) {
-                    displayTimeRemaining();
-                    timeLeft--;
-                } else {
-                    handleSessionComplete();
+    private void startTimer(int minutes) {
+        sessionDurationInMinutes = minutes;
+        timeLeft = minutes * 60;
+        timerThread = new Thread(() -> {
+            try {
+                while (timeLeft > 0 && !Thread.currentThread().isInterrupted()) {
+                    if (!isPaused.get()) {
+                        Thread.sleep(1000);
+                        timeLeft--;
+                    }
                 }
-            }
-        }, 0, 1000);
-    }
-
-    private void displayTimeRemaining() {
-        // Don't update the display if we're showing help
-        if (displayingHelp.get()) return;
-        
-        int minutes = timeLeft / 60;
-        int seconds = timeLeft % 60;
-        String sessionLabel = currentSessionType == SessionType.WORK ? "Focus" : "Break";
-        String pauseStatus = isPaused.get() ? " [PAUSED]" : "";
-        
-        String displayText = String.format("\r%s: %02d:%02d%s > ", 
-            sessionLabel, minutes, seconds, pauseStatus);
-            
-        if (terminal != null) {
-            try {
-                // Save cursor position
-                terminal.writer().print("\u001B[s");
-                // Clear line
-                terminal.writer().print("\u001B[2K");
-                // Print timer
-                terminal.writer().print(displayText);
-                // Restore cursor position for command input
-                terminal.writer().print("\u001B[u");
-                terminal.writer().flush();
-            } catch (Exception e) {
-                System.out.print(displayText);
-                System.out.flush();
-            }
-        } else {
-            System.out.print(displayText);
-            System.out.flush();
-        }
-    }
-
-    private void handleSessionComplete() {
-        String sessionType = currentSessionType == SessionType.WORK ? "Focus" : "Break";
-        printMessage("\n" + sessionType + " Session Complete!");
-        
-        logSession(currentSessionType, Duration.ofMinutes(sessionDurationInMinutes));
-        
-        if (currentSessionType == SessionType.WORK) {
-            focusCount++;
-            displayTotalFocusTime();
-            startBreak();
-        } else {
-            // Break is over - time to work
-            SoundService.playWorkSound();
-            printMessage("\nBreak Over! Back to work!");
-            
-            // Use a small delay to ensure the message is seen and sound plays
-            try {
-                Thread.sleep(1500);
+                if (timeLeft <= 0) {
+                    completeSession();
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            
-            // Important: start a new work session without calling stopSession first
-            // to prevent the thread termination issue
-            timeLeft = sessionDurationInMinutes * 60;
-            currentSessionType = SessionType.WORK;
-            
-            printMessage("Starting WORK Session: " + sessionDurationInMinutes + " Minutes");
+        });
+        timerThread.start();
+    }
+
+    private void stopTimer() {
+        if (timerThread != null && timerThread.isAlive()) {
+            timerThread.interrupt();
+            isRunning.set(false);
+            isPaused.set(false);
         }
     }
 
-    private void startBreak() {
-        boolean isLongBreak = focusCount % getSessionsBeforeLongBreak() == 0;
-        int breakDuration = isLongBreak ? getLongBreakDuration() : getShortBreakDuration();
-        
-        printMessage(String.format("\nTime for a %s break (%d mins)!", 
-            isLongBreak ? "LONG" : "short", breakDuration));
-        SoundService.playBreakSound();
-        
-        // Use a small delay to ensure the message is seen and sound plays
+    public void startPomodoroCycle(int duration) {
         try {
-            Thread.sleep(1500);
+            startWorkSession();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        
-        // Set the correct break type
-        currentSessionType = isLongBreak ? SessionType.LONG_BREAK : SessionType.SHORT_BREAK;
-        timeLeft = breakDuration * 60;
-        
-        printMessage("Starting BREAK Session: " + breakDuration + " Minutes");
     }
 
-    private void handleUserInput() {
-        while (isRunning.get()) {
-            try {
-                String input = "";
-                if (lineReader != null) {
-                    try {
-                        // Use a non-blocking approach with sleep instead
-                        if (lineReader.isReading()) {
-                            Thread.sleep(100);
-                            continue;
-                        }
-                        
-                        // Only try to read if there's input available
-                        if (terminal.reader().ready()) {
-                            input = lineReader.readLine("", "", (Character)null, null);
-                        } else {
-                            Thread.sleep(100);
-                            continue;
-                        }
-                    } catch (UserInterruptException e) {
-                        // Ctrl+C - stop the timer
-                        stopSession();
-                        printMessage("Timer interrupted. Exiting...");
-                        break;
-                    } catch (EndOfFileException e) {
-                        // Ctrl+D - stop the timer
-                        stopSession();
-                        printMessage("End of input. Exiting...");
-                        break;
-                    }
-                } else {
-                    // Fallback to Scanner
-                    try (Scanner scanner = new Scanner(System.in)) {
-                        if (System.in.available() > 0 && scanner.hasNextLine()) {
-                            input = scanner.nextLine();
-                        } else {
-                            Thread.sleep(100);
-                            continue;
-                        }
-                    } catch (Exception e) {
-                        Thread.sleep(100);
-                        continue;
-                    }
-                }
-                
-                if (input != null && !input.trim().isEmpty()) {
-                    processUserCommand(input.trim().toLowerCase());
-                }
-                
-                // Add a small sleep to prevent CPU hogging
-                Thread.sleep(50);
-            } catch (Exception e) {
-                if (!isRunning.get()) break;
-                // Only print real errors, not just null input
-                if (e.getMessage() != null) {
-                    System.err.println("Error reading input: " + e.getMessage());
-                }
-                
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-        }
+    public void stopSession() {
+        completeSession();
     }
 
-    void processUserCommand(String command) {
-        switch (command) {
+    public void processUserCommand(String command) {
+        switch (command.toLowerCase()) {
             case CMD_PAUSE:
-                isPaused.set(true);
-                printMessage("Timer Paused. Type 'resume' to continue.");
+                if (isRunning.get() && !isPaused.get()) {
+                    isPaused.set(true);
+                    printMessage("Timer paused");
+                }
                 break;
             case CMD_RESUME:
-                isPaused.set(false);
-                printMessage("Timer Resumed");
+                if (isRunning.get() && isPaused.get()) {
+                    isPaused.set(false);
+                    printMessage("Timer resumed");
+                }
                 break;
             case CMD_STOP:
                 stopSession();
                 resetTimer();
-                printMessage("Timer Stopped. Enter a new duration to start again (in minutes):");
+                printMessage("Timer stopped. Enter a new duration to start again (in minutes):");
                 startNewTimerFromInput();
                 break;
             case CMD_HELP:
@@ -304,113 +194,86 @@ public class PomodoroTimer implements AutoCloseable {
                 skipCurrentSession();
                 break;
             default:
-                printMessage("Unknown Command. Type 'help' for available commands.");
-                break;
+                printMessage("Invalid command: " + command);
         }
     }
 
     private void printHelp() {
-        String[] helpLines = {
-            "",
-            "📋 Available Commands:",
-            "  • " + CMD_PAUSE + " - Pause the current timer",
-            "  • " + CMD_RESUME + " - Resume a paused timer",
-            "  • " + CMD_STOP + " - Stop the timer completely",
-            "  • " + CMD_STATUS + " - Show current timer status",
-            "  • " + CMD_SKIP + " - Skip to the next session",
-            "  • " + CMD_HELP + " - Show this help message",
-            ""
-        };
-        
-        for (String line : helpLines) {
-            printMessage(line);
-        }
+        printMessage("Available commands:");
+        printMessage("  pause  - Pause the timer");
+        printMessage("  resume - Resume the timer");
+        printMessage("  stop   - Stop the timer");
+        printMessage("  skip   - Skip the current session");
+        printMessage("  status - Display current timer status");
+        printMessage("  help   - Show this help message");
     }
-    
+
     private void displayStatus() {
-        String sessionType = currentSessionType == SessionType.WORK ? "Focus" : "Break";
-        int minutes = timeLeft / 60;
-        int seconds = timeLeft % 60;
-        String status = isPaused.get() ? "PAUSED" : "RUNNING";
-        
-        String[] statusLines = {
-            "",
-            "⏱️ Current Status:",
-            "  • Session Type: " + sessionType,
-            "  • Time Remaining: " + String.format("%02d:%02d", minutes, seconds),
-            "  • Timer Status: " + status,
-            "  • Focus Sessions Completed: " + focusCount,
-            ""
-        };
-        
-        for (String line : statusLines) {
-            printMessage(line);
+        if (isRunning.get()) {
+            printMessage(String.format("Session type: %s", currentSessionType));
+            printMessage(String.format("Time remaining: %s", formatDuration(Duration.ofSeconds(timeLeft))));
+            printMessage(String.format("Status: %s", isPaused.get() ? "Paused" : "Running"));
+        } else {
+            printMessage("Timer is not running");
         }
     }
-    
+
     private void skipCurrentSession() {
-        printMessage("Skipping current session...");
         timeLeft = 1; // Set to 1 second to trigger completion on next tick
     }
 
-    public void stopSession() {
-        if (timer != null) {
-            timer.cancel();
-            timer.purge();
+    private void logSession(SessionType type, Duration duration) {
+        Session session = new Session(type, duration, LocalDateTime.now());
+        sessionLogs.add(session);
+        if (type == SessionType.WORK) {
+            focusCount++;
         }
+    }
+
+    private void printMessage(String message) {
+        if (!displayingHelp.get()) {
+            terminal.writer().println(new AttributedStringBuilder()
+                .style(AttributedStyle.DEFAULT.foreground(AttributedStyle.YELLOW))
+                .append(message)
+                .toAnsi());
+            terminal.writer().flush();
+        } else {
+            terminal.writer().println(message);
+            terminal.writer().flush();
+        }
+    }
+
+    private String formatDuration(Duration duration) {
+        long minutes = duration.toMinutes();
+        return String.format("%dm", minutes);
+    }
+
+    private void resetTimer() {
+        timeLeft = 0;
+        sessionDurationInMinutes = 0;
         isRunning.set(false);
         isPaused.set(false);
     }
 
-    private void logSession(SessionType type, Duration duration) {
-        Session session = new Session(type.name().toLowerCase(), LocalDateTime.now(), duration);
-        sessionLogs.add(session);
-
-        try (FileWriter writer = new FileWriter("Session_log.json", true)) {
-            writer.write(session.toJson() + "\n");
-        } catch (IOException e) {
-            System.err.println("Failed to write session log: " + e.getMessage());
-        }
-    }
-
-    private void displayTotalFocusTime() {
-        long totalFocusMinutes = sessionLogs.stream()
-                .filter(session -> session.getType().equals("work"))
-                .mapToLong(session -> session.getDuration().toMinutes())
-                .sum();
-
-        printMessage("Total Focus Time: " + formatDuration(Duration.ofMinutes(totalFocusMinutes)));
-    }
-
-    private void printMessage(String message) {
-        if (terminal != null) {
-            try {
-                // Clear line
-                terminal.writer().print("\r\u001B[2K");
-                // Print message
-                terminal.writer().println(message);
-                terminal.writer().flush();
-                return;
-            } catch (Exception e) {
-                // Fallback to standard output
+    private void startNewTimerFromInput() {
+        try {
+            String input = lineReader.readLine("Enter duration (minutes): ");
+            int duration = Integer.parseInt(input);
+            if (duration > 0) {
+                startPomodoroCycle(duration);
+            } else {
+                printMessage("Please enter a positive number");
+                startNewTimerFromInput();
             }
+        } catch (NumberFormatException e) {
+            printMessage("Please enter a valid number");
+            startNewTimerFromInput();
         }
-        System.out.println("\r" + message);
-    }
-    
-    private String formatDuration(Duration duration) {
-        long hours = duration.toHours();
-        long minutes = duration.minusHours(hours).toMinutes();
-        
-        if (hours > 0) {
-            return String.format("%dh %02dm", hours, minutes);
-        }
-        return String.format("%dm", minutes);
     }
 
     @Override
     public void close() {
-        stopSession();
+        stopTimer();
         executor.shutdown();
         try {
             if (!executor.awaitTermination(800, TimeUnit.MILLISECONDS)) {
@@ -430,74 +293,19 @@ public class PomodoroTimer implements AutoCloseable {
         }
     }
 
-    private enum SessionType {
-        WORK,
-        SHORT_BREAK,
-        LONG_BREAK
-    }
-    
-    // Tab completion for commands
     private static class PomodoroCompleter implements Completer {
         private static final List<String> COMMANDS = Arrays.asList(
             CMD_PAUSE, CMD_RESUME, CMD_STOP, CMD_HELP, CMD_STATUS, CMD_SKIP
         );
-        
+
         @Override
         public void complete(LineReader reader, ParsedLine line, List<Candidate> candidates) {
             String word = line.word().toLowerCase();
-            
             for (String command : COMMANDS) {
                 if (command.startsWith(word)) {
-                    candidates.add(new Candidate(command, command, null, null, null, null, true));
+                    candidates.add(new Candidate(command));
                 }
             }
-        }
-    }
-
-    private void resetTimer() {
-        focusCount = 0;
-        currentSessionType = null;
-        sessionDurationInMinutes = 0;
-        timeLeft = 0;
-        
-        // Clear the screen
-        if (terminal != null) {
-            try {
-                terminal.puts(InfoCmp.Capability.clear_screen);
-                terminal.flush();
-            } catch (Exception e) {
-                // Fallback
-                System.out.print("\033[H\033[2J");
-                System.out.flush();
-            }
-        }
-    }
-    
-    private void startNewTimerFromInput() {
-        try {
-            String input = lineReader != null 
-                ? lineReader.readLine("Enter duration (minutes): ") 
-                : new Scanner(System.in).nextLine();
-                
-            int duration;
-            try {
-                duration = Integer.parseInt(input.trim());
-                if (duration <= 0) {
-                    printMessage("Invalid duration. Using default of " + 
-                        ConfigManager.getDefaultWorkDuration() + " minutes.");
-                    duration = ConfigManager.getDefaultWorkDuration();
-                }
-            } catch (NumberFormatException e) {
-                printMessage("Invalid input. Using default of " + 
-                    ConfigManager.getDefaultWorkDuration() + " minutes.");
-                duration = ConfigManager.getDefaultWorkDuration();
-            }
-            
-            // Start a new timer session
-            startPomodoroCycle(duration);
-            
-        } catch (Exception e) {
-            printMessage("Error reading input: " + e.getMessage());
         }
     }
 }

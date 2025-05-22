@@ -1,8 +1,13 @@
 package org.GCremez.sound;
 
+import org.GCremez.config.ConfigManager;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -10,21 +15,34 @@ import java.io.IOException;
 import java.nio.file.Path;
 
 class SoundServiceTest {
+    @Mock
+    private ConfigManager configManager;
+    private SoundService soundService;
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+        when(configManager.isSoundEnabled()).thenReturn(true);
+        when(configManager.getWorkSoundFile()).thenReturn("work.wav");
+        when(configManager.getBreakSoundFile()).thenReturn("break.wav");
+        when(configManager.getSoundVolume()).thenReturn(1.0);
+        soundService = new SoundService(configManager);
+    }
     
     @Test
     void testSoundFileAvailabilityCheck() {
         // This test verifies that the service handles missing sound files gracefully
         assertDoesNotThrow(() -> {
-            SoundService.playWorkSound();
-            SoundService.playBreakSound();
+            soundService.playWorkSound();
+            soundService.playBreakSound();
         });
     }
     
     @Test
     void testInvalidSoundTest() {
         assertDoesNotThrow(() -> {
-            SoundService.testPlaySound("invalid");
-            SoundService.testPlaySound(null);
+            soundService.testPlaySound("invalid");
+            soundService.testPlaySound(null);
         });
     }
     
@@ -41,8 +59,9 @@ class SoundServiceTest {
         }
         
         // Test with invalid WAV file
+        when(configManager.getWorkSoundFile()).thenReturn(dummyWav.getAbsolutePath());
         assertDoesNotThrow(() -> {
-            SoundService.playSound(dummyWav.getAbsolutePath());
+            soundService.playWorkSound();
         });
     }
 } 

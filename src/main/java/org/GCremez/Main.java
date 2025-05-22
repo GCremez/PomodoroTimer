@@ -1,16 +1,21 @@
 package org.GCremez;
 
-import org.GCremez.analytics.AnalyticsService;
+import org.GCremez.config.ConfigManager;
+import org.GCremez.service.AnalyticsService;
+import org.GCremez.service.DefaultAnalyticsService;
+import org.GCremez.sound.SoundService;
 import org.GCremez.timer.PomodoroTimer;
 
 import java.util.Scanner;
 
 public class Main {
     public static void main(String[] args) {
-        AnalyticsService.printStats();
+        ConfigManager configManager = new ConfigManager();
+        SoundService soundService = new SoundService(configManager);
+        AnalyticsService analyticsService = new DefaultAnalyticsService(configManager);
 
         try (Scanner scanner = new Scanner(System.in);
-             PomodoroTimer pomodoroTimer = new PomodoroTimer()) {
+             PomodoroTimer pomodoroTimer = new PomodoroTimer(configManager, soundService, analyticsService)) {
 
             System.out.println("Enter focus session duration in minutes (default is 25):");
             String input = scanner.nextLine().trim();

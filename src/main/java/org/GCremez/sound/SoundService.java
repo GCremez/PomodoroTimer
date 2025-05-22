@@ -13,22 +13,27 @@ import java.io.IOException;
 
 public class SoundService {
     private static final Logger logger = LoggerFactory.getLogger(SoundService.class);
-    private static boolean soundsAvailable = false;
+    private final ConfigManager configManager;
+    private boolean soundsAvailable;
 
-    static {
-        // Check if sound files exist and sound is enabled
-        if (ConfigManager.isSoundEnabled()) {
+    public SoundService(ConfigManager configManager) {
+        this.configManager = configManager;
+        initializeSoundSystem();
+    }
+
+    private void initializeSoundSystem() {
+        if (configManager.isSoundEnabled()) {
             try {
                 // These calls will validate the files
-                String breakFile = ConfigManager.getBreakSoundFile();
-                String workFile = ConfigManager.getWorkSoundFile();
+                String breakFile = configManager.getBreakSoundFile();
+                String workFile = configManager.getWorkSoundFile();
                 soundsAvailable = true;
                 logger.info("Sound system initialized successfully");
             } catch (ValidationException e) {
                 logger.warn("Sound system initialization failed: {}", e.getMessage());
                 logger.info("To enable sounds, add WAV files at:");
-                logger.info("- {}", ConfigManager.getBreakSoundFile());
-                logger.info("- {}", ConfigManager.getWorkSoundFile());
+                logger.info("- {}", configManager.getBreakSoundFile());
+                logger.info("- {}", configManager.getWorkSoundFile());
                 soundsAvailable = false;
             } catch (Exception e) {
                 logger.error("Unexpected error during sound system initialization", e);
@@ -39,29 +44,29 @@ public class SoundService {
         }
     }
 
-    public static void playBreakSound() {
-        if (soundsAvailable && ConfigManager.isSoundEnabled()) {
+    public void playBreakSound() {
+        if (soundsAvailable && configManager.isSoundEnabled()) {
             logger.debug("Playing break sound");
             try {
-                playSound(ConfigManager.getBreakSoundFile());
+                playSound(configManager.getBreakSoundFile());
             } catch (Exception e) {
                 logger.error("Failed to play break sound", e);
             }
         }
     }
 
-    public static void playWorkSound() {
-        if (soundsAvailable && ConfigManager.isSoundEnabled()) {
+    public void playWorkSound() {
+        if (soundsAvailable && configManager.isSoundEnabled()) {
             logger.debug("Playing work sound");
             try {
-                playSound(ConfigManager.getWorkSoundFile());
+                playSound(configManager.getWorkSoundFile());
             } catch (Exception e) {
                 logger.error("Failed to play work sound", e);
             }
         }
     }
 
-    static void playSound(String soundFile) {
+    private void playSound(String soundFile) {
         try {
             // Validate sound file before playing
             ValidationUtils.validateSoundFile(soundFile);
@@ -73,7 +78,7 @@ public class SoundService {
                 // Set volume if supported
                 if (clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
                     FloatControl gainControl = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
-                    float volume = (float) ConfigManager.getSoundVolume();
+                    float volume = (float) configManager.getSoundVolume();
                     float dB = (float) (Math.log(volume) / Math.log(10.0) * 20.0);
                     gainControl.setValue(Math.max(gainControl.getMinimum(), Math.min(gainControl.getMaximum(), dB)));
                 }
@@ -106,8 +111,7 @@ public class SoundService {
         }
     }
 
-    // Test method to directly play a sound (for debugging)
-    public static void testPlaySound(String which) {
+    public void testPlaySound(String which) {
         logger.info("Testing sound playback: {}", which);
         
         try {
@@ -116,7 +120,7 @@ public class SoundService {
             if ("break".equalsIgnoreCase(which)) {
                 new Thread(() -> {
                     try {
-                        playSound(ConfigManager.getBreakSoundFile());
+                        playSound(configManager.getBreakSoundFile());
                     } catch (Exception e) {
                         logger.error("Failed to play test break sound", e);
                     }
@@ -124,7 +128,7 @@ public class SoundService {
             } else if ("work".equalsIgnoreCase(which)) {
                 new Thread(() -> {
                     try {
-                        playSound(ConfigManager.getWorkSoundFile());
+                        playSound(configManager.getWorkSoundFile());
                     } catch (Exception e) {
                         logger.error("Failed to play test work sound", e);
                     }

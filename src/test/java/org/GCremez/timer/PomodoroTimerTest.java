@@ -1,78 +1,116 @@
 package org.GCremez.timer;
 
+import org.GCremez.config.ConfigManager;
+import org.GCremez.service.AnalyticsService;
+import org.GCremez.sound.SoundService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import static org.junit.jupiter.api.Assertions.*;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+
+import static org.mockito.Mockito.*;
 
 class PomodoroTimerTest {
     
-    private PomodoroTimer timer;
+    @Mock
+    private ConfigManager configManager;
+    @Mock
+    private SoundService soundService;
+    @Mock
+    private AnalyticsService analyticsService;
+
+    private PomodoroTimer pomodoroTimer;
     
     @BeforeEach
     void setUp() {
-        timer = new PomodoroTimer();
+        MockitoAnnotations.openMocks(this);
+        when(configManager.getWorkDuration()).thenReturn(25);
+        when(configManager.getBreakDuration()).thenReturn(5);
+        pomodoroTimer = new PomodoroTimer(configManager, soundService, analyticsService);
     }
     
     @AfterEach
     void tearDown() {
-        if (timer != null) {
-            timer.close();
+        if (pomodoroTimer != null) {
+            pomodoroTimer.close();
         }
     }
     
     @Test
-    void testStartPomodoroCycle() {
+    void testStartPomodoroCycle() throws InterruptedException {
         assertDoesNotThrow(() -> {
-            timer.startPomodoroCycle(25);
+            pomodoroTimer.startPomodoroCycle(25);
             Thread.sleep(100); // Give time for timer to start
-            timer.stopSession();
+            pomodoroTimer.stopSession();
         });
     }
     
     @Test
-    void testMultipleStarts() {
-        timer.startPomodoroCycle(25);
+    void testMultipleStarts() throws InterruptedException {
+        pomodoroTimer.startPomodoroCycle(25);
         // Should not throw exception and should print message
-        timer.startPomodoroCycle(25);
-        timer.stopSession();
+        pomodoroTimer.startPomodoroCycle(25);
+        pomodoroTimer.stopSession();
     }
     
     @Test
-    void testPauseResume() {
-        timer.startPomodoroCycle(25);
+    void testPauseResume() throws InterruptedException {
+        pomodoroTimer.startPomodoroCycle(25);
         
         // Test pause
-        timer.processUserCommand("pause");
+        pomodoroTimer.processUserCommand("pause");
         Thread.sleep(100); // Give time for pause to take effect
         
         // Test resume
-        timer.processUserCommand("resume");
+        pomodoroTimer.processUserCommand("resume");
         Thread.sleep(100); // Give time for resume to take effect
         
-        timer.stopSession();
+        pomodoroTimer.stopSession();
     }
     
     @Test
-    void testSkipSession() {
-        timer.startPomodoroCycle(25);
+    void testSkipSession() throws InterruptedException {
+        pomodoroTimer.startPomodoroCycle(25);
         
         // Test skip
-        timer.processUserCommand("skip");
+        pomodoroTimer.processUserCommand("skip");
         Thread.sleep(100); // Give time for skip to take effect
         
-        timer.stopSession();
+        pomodoroTimer.stopSession();
     }
     
     @Test
-    void testInvalidCommand() {
-        timer.startPomodoroCycle(25);
+    void testInvalidCommand() throws InterruptedException {
+        pomodoroTimer.startPomodoroCycle(25);
         
         // Should not throw exception for invalid command
         assertDoesNotThrow(() -> {
-            timer.processUserCommand("invalid_command");
+            pomodoroTimer.processUserCommand("invalid_command");
         });
         
-        timer.stopSession();
+        pomodoroTimer.stopSession();
+    }
+
+    @Test
+    void testStartWorkSession() throws InterruptedException {
+        pomodoroTimer.startWorkSession();
+        verify(soundService).playWorkSound();
+        verify(analyticsService).logWorkSessionStart();
+    }
+
+    @Test
+    void testStartBreakSession() throws InterruptedException {
+        pomodoroTimer.startBreakSession();
+        verify(soundService).playBreakSound();
+        verify(analyticsService).logBreakSessionStart();
+    }
+
+    @Test
+    void testCompleteSession() throws InterruptedException {
+        pomodoroTimer.startWorkSession();
+        pomodoroTimer.completeSession();
+        verify(analyticsService).logSessionComplete();
     }
 } 
