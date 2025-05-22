@@ -1,16 +1,59 @@
-# PomodoroTimer
+# Pomodoro Timer
 
-A feature-rich command-line Pomodoro Timer application built in Java that helps you manage your work sessions effectively using the Pomodoro Technique.
+A feature-rich Pomodoro Timer application built in Java with modern software engineering practices.
 
 ## Features
 
-- 🎯 Customizable work session duration
-- ⏰ Automatic break scheduling (short and long breaks)
-- 🔊 Sound notifications for session transitions
-- ⌨️ Interactive command-line interface with tab completion
-- 📊 Session logging and analytics
-- ⏸️ Pause, resume, and skip functionality
-- 📝 Status tracking and session history
+- Configurable work and break durations
+- Sound notifications for session transitions
+- Session logging and analytics
+- Colorful terminal interface
+- Command-line controls
+- Configuration system using Typesafe Config
+- Comprehensive logging with SLF4J and Logback
+- Proper exception handling and input validation
+
+## Requirements
+
+- Java 11 or higher
+- Maven 3.6 or higher
+
+## Building
+
+```bash
+mvn clean package
+```
+
+## Running
+
+```bash
+java -jar target/PomodoroTimer-1.0-SNAPSHOT.jar
+```
+
+## Configuration
+
+The application uses the following configuration hierarchy:
+1. Default settings in `src/main/resources/reference.conf`
+2. Optional user settings in `application.conf`
+
+### Example Configuration
+
+```hocon
+pomodoro {
+    timer {
+        default-work-duration = 25    # minutes
+        short-break-duration = 5      # minutes
+        long-break-duration = 15      # minutes
+        sessions-before-long-break = 4
+    }
+    sound {
+        enabled = true
+        volume = 1.0
+        work-sound-file = "sounds/work.wav"
+        break-sound-file = "sounds/break.wav"
+    }
+}
+```
 
 ## Commands
 
@@ -19,55 +62,22 @@ A feature-rich command-line Pomodoro Timer application built in Java that helps 
 - `stop` - Stop the timer completely
 - `status` - Show current timer status
 - `skip` - Skip to the next session
-- `help` - Show available commands
+- `help` - Show help message
 
-## Getting Started
+## Logging
 
-### Prerequisites
-
-- Java 11 or higher
-- Maven
-
-### Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/GCremez/PomodoroTimer.git
-cd PomodoroTimer
-```
-
-2. Build the project:
-```bash
-mvn clean package
-```
-
-3. Run the application:
-```bash
-java -jar target/PomodoroTimer.jar
-```
-
-## Usage
-
-1. Start the application
-2. Enter your desired work session duration in minutes
-3. Use the available commands to control your sessions
-4. The timer will automatically handle breaks between work sessions
-
-## Features in Detail
-
-### Sound Notifications
-- Work session completion notification
-- Break session completion notification
-
-### Session Analytics
-- Tracks total focus time
-- Logs session history to JSON format
-- Maintains statistics of your work patterns
-
-### Break Schedule
-- Short breaks (5 minutes) after regular sessions
-- Long breaks (15 minutes) after every 4 work sessions
+Logs are written to:
+- Console (INFO level and above)
+- `logs/pomodoro.log` (with daily rolling)
 
 ## Contributing
 
-Feel free to submit issues and enhancement requests!
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

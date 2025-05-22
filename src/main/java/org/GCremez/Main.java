@@ -30,12 +30,21 @@ public class Main {
             // Start the Pomodoro session
             pomodoroTimer.startPomodoroCycle(duration);
 
-            // Wait for the timer to complete
-            while (true) {
-                Thread.sleep(1000);
+            // Create a shutdown hook to handle graceful termination
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                System.out.println("\nShutting down timer...");
+                pomodoroTimer.close();
+            }));
+
+            // Wait for the timer to complete or interrupt
+            Object lock = new Object();
+            synchronized (lock) {
+                try {
+                    lock.wait();
+                } catch (InterruptedException e) {
+                    System.out.println("\nTimer interrupted. Exiting...");
+                }
             }
-        } catch (InterruptedException e) {
-            System.out.println("\nTimer interrupted. Exiting...");
         }
     }
 }

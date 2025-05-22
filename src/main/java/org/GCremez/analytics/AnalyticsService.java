@@ -3,7 +3,9 @@ package org.GCremez.analytics;
 import org.GCremez.model.Session;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileReader;
+import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -143,17 +145,37 @@ public class AnalyticsService {
 
     private static List<Session> loadSessions() {
         List<Session> sessions = new ArrayList<>();
-        try (BufferedReader reader = new BufferedReader(new FileReader("Session_log.json"))) {
+        File logFile = new File("Session_log.json");
+        
+        if (!logFile.exists()) {
+            System.out.println("No session history found. Starting fresh!");
+            return sessions;
+        }
+        
+        try (BufferedReader reader = new BufferedReader(new FileReader(logFile))) {
             String line;
+            int lineNumber = 0;
             while ((line = reader.readLine()) != null) {
-                Session session = Session.fromJson(line);
-                if (session != null) sessions.add(session);
+                lineNumber++;
+                try {
+                    Session session = Session.fromJson(line);
+                    if (session != null) {
+                        sessions.add(session);
+                    } else {
+                        System.err.println("Warning: Invalid session data at line " + lineNumber);
+                    }
+                } catch (Exception e) {
+                    System.err.println("Error parsing session at line " + lineNumber + ": " + e.getMessage());
+                }
             }
-        } catch (Exception ignored) {}
+        } catch (IOException e) {
+            System.err.println("Error reading session log: " + e.getMessage());
+        }
+        
         return sessions;
     }
 
-    private static String formatDuration(Duration duration) {
+    static String formatDuration(Duration duration) {
         long hours = duration.toHours();
         long minutes = duration.minusHours(hours).toMinutes();
 

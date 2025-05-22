@@ -2,6 +2,7 @@ package org.GCremez.timer;
 
 import org.GCremez.model.Session;
 import org.GCremez.sound.SoundService;
+import org.GCremez.config.ConfigManager;
 import org.jline.reader.*;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
@@ -22,10 +23,19 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PomodoroTimer implements AutoCloseable {
-    private static final int LONG_BREAK_DURATION = 15;
-    private static final int SHORT_BREAK_DURATION = 5;
-    private static final int SESSIONS_BEFORE_LONG_BREAK = 4;
+    // Replace the static final fields with config-based values
+    private static int getLongBreakDuration() {
+        return ConfigManager.getLongBreakDuration();
+    }
     
+    private static int getShortBreakDuration() {
+        return ConfigManager.getShortBreakDuration();
+    }
+    
+    private static int getSessionsBeforeLongBreak() {
+        return ConfigManager.getSessionsBeforeLongBreak();
+    }
+
     // Available commands
     private static final String CMD_PAUSE = "pause";
     private static final String CMD_RESUME = "resume";
@@ -60,12 +70,14 @@ public class PomodoroTimer implements AutoCloseable {
                     .completer(new PomodoroCompleter())
                     .option(LineReader.Option.CASE_INSENSITIVE, true)
                     .variable(LineReader.SECONDARY_PROMPT_PATTERN, "%P > ")
-                    .variable(LineReader.HISTORY_SIZE, 100)
+                    .variable(LineReader.HISTORY_SIZE, ConfigManager.getCommandHistorySize())
                     .build();
                     
-            // Clear screen at startup
-            terminal.puts(InfoCmp.Capability.clear_screen);
-            terminal.flush();
+            // Clear screen at startup if configured
+            if (ConfigManager.shouldClearScreenOnStart()) {
+                terminal.puts(InfoCmp.Capability.clear_screen);
+                terminal.flush();
+            }
         } catch (IOException e) {
             System.err.println("Failed to initialize terminal: " + e.getMessage());
             // Fallback to basic console IO
@@ -176,8 +188,8 @@ public class PomodoroTimer implements AutoCloseable {
     }
 
     private void startBreak() {
-        boolean isLongBreak = focusCount % SESSIONS_BEFORE_LONG_BREAK == 0;
-        int breakDuration = isLongBreak ? LONG_BREAK_DURATION : SHORT_BREAK_DURATION;
+        boolean isLongBreak = focusCount % getSessionsBeforeLongBreak() == 0;
+        int breakDuration = isLongBreak ? getLongBreakDuration() : getShortBreakDuration();
         
         printMessage(String.format("\nTime for a %s break (%d mins)!", 
             isLongBreak ? "LONG" : "short", breakDuration));
@@ -190,9 +202,9 @@ public class PomodoroTimer implements AutoCloseable {
             Thread.currentThread().interrupt();
         }
         
-        // Important: Switch to break mode without calling stopSession
+        // Set the correct break type
+        currentSessionType = isLongBreak ? SessionType.LONG_BREAK : SessionType.SHORT_BREAK;
         timeLeft = breakDuration * 60;
-        currentSessionType = SessionType.SHORT_BREAK;
         
         printMessage("Starting BREAK Session: " + breakDuration + " Minutes");
     }
@@ -229,12 +241,9 @@ public class PomodoroTimer implements AutoCloseable {
                     }
                 } else {
                     // Fallback to Scanner
-                    try {
-                        if (System.in.available() > 0) {
-                            Scanner scanner = new Scanner(System.in);
-                            if (scanner.hasNextLine()) {
-                                input = scanner.nextLine();
-                            }
+                    try (Scanner scanner = new Scanner(System.in)) {
+                        if (System.in.available() > 0 && scanner.hasNextLine()) {
+                            input = scanner.nextLine();
                         } else {
                             Thread.sleep(100);
                             continue;
@@ -267,7 +276,7 @@ public class PomodoroTimer implements AutoCloseable {
         }
     }
 
-    private void processUserCommand(String command) {
+    void processUserCommand(String command) {
         switch (command) {
             case CMD_PAUSE:
                 isPaused.set(true);
@@ -474,12 +483,14 @@ public class PomodoroTimer implements AutoCloseable {
             try {
                 duration = Integer.parseInt(input.trim());
                 if (duration <= 0) {
-                    printMessage("Invalid duration. Using default of 25 minutes.");
-                    duration = 25;
+                    printMessage("Invalid duration. Using default of " + 
+                        ConfigManager.getDefaultWorkDuration() + " minutes.");
+                    duration = ConfigManager.getDefaultWorkDuration();
                 }
             } catch (NumberFormatException e) {
-                printMessage("Invalid input. Using default of 25 minutes.");
-                duration = 25;
+                printMessage("Invalid input. Using default of " + 
+                    ConfigManager.getDefaultWorkDuration() + " minutes.");
+                duration = ConfigManager.getDefaultWorkDuration();
             }
             
             // Start a new timer session

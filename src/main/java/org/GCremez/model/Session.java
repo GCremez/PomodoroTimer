@@ -16,26 +16,65 @@ public class Session {
 
     // Convert session data to JSON format for easy writing
     public String toJson() {
-        return String.format("{\"type\":\"%s\",\"start_time\":\"%s\",\"duration\":\"%s\"}",
-                type, startTime.toString(), duration.toString());
+        return String.format("{\"type\":\"%s\",\"start_time\":\"%s\",\"duration_seconds\":%d}",
+                escapeJson(type), 
+                startTime.toString(),
+                duration.getSeconds());
+    }
+
+    private static String escapeJson(String input) {
+        if (input == null) return "null";
+        return input.replace("\\", "\\\\")
+                   .replace("\"", "\\\"")
+                   .replace("\b", "\\b")
+                   .replace("\f", "\\f")
+                   .replace("\n", "\\n")
+                   .replace("\r", "\\r")
+                   .replace("\t", "\\t");
     }
 
     public static Session fromJson(String json) {
         try {
-            String[] parts = json.replaceAll("[{}\"]", "").split(",");
-            String type = parts[0].split(":")[1];
-            String start = parts[1].split(":")[1];
-            String time = parts[1].split(":")[2];
-            String dateTimeStr = start + ":" + time;
-            String secondsStr = parts[2].split(":")[1];
+            // Basic validation
+            if (!json.startsWith("{") || !json.endsWith("}")) {
+                throw new IllegalArgumentException("Invalid JSON format");
+            }
 
+            // Remove outer braces and split by commas not inside quotes
+            String content = json.substring(1, json.length() - 1);
+            String[] parts = content.split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)");
+            
+            String type = null;
+            LocalDateTime startTime = null;
+            Duration duration = null;
 
-            return new Session(
-                    type,
-                    LocalDateTime.parse(dateTimeStr),
-                    Duration.ofSeconds(Long.parseLong(secondsStr))
-            );
+            for (String part : parts) {
+                String[] keyValue = part.split(":", 2);
+                if (keyValue.length != 2) continue;
+
+                String key = keyValue[0].replaceAll("[\"\\s]", "");
+                String value = keyValue[1].trim();
+
+                switch (key) {
+                    case "type":
+                        type = value.replaceAll("^\"|\"$", "");
+                        break;
+                    case "start_time":
+                        startTime = LocalDateTime.parse(value.replaceAll("^\"|\"$", ""));
+                        break;
+                    case "duration_seconds":
+                        duration = Duration.ofSeconds(Long.parseLong(value));
+                        break;
+                }
+            }
+
+            if (type == null || startTime == null || duration == null) {
+                throw new IllegalArgumentException("Missing required fields");
+            }
+
+            return new Session(type, startTime, duration);
         } catch (Exception e) {
+            System.err.println("Error parsing session: " + e.getMessage());
             return null;
         }
     }
