@@ -11,7 +11,7 @@ public class Main {
 
         try (Scanner scanner = new Scanner(System.in);
              PomodoroTimer pomodoroTimer = new PomodoroTimer()) {
-            
+
             System.out.println("Enter focus session duration in minutes (default is 25):");
             String input = scanner.nextLine().trim();
 
